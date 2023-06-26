@@ -1,0 +1,274 @@
+---
+title: "Social Preferences of ChatGPT - Preprocessing and General Data Exploration"
+output: html_document
+date: "2023-06-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load required libraries
+library(apaTables)
+library(dplyr)
+library(flextable)
+library(ggplot2)
+library(ggpubr)
+library(kableExtra)
+library(knitr)
+library(rempsyc)
+library(tidyverse)
+
+# Define theme for plots
+my_theme <- function() {
+  theme(legend.position = "none",
+        plot.title = element_text(size = 12, face = "bold", margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 11, face = "italic", margin = margin(b = 15)),
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(color = "black"),
+        plot.margin = margin(20, 5, 5, 5, "pt"),
+        plot.title.position = "plot")
+}
+
+# Set Working Directory to Source File Directory
+getwd()
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+```
+
+This document includes the preprocessing of the raw experimental data as well as first exploratory analyses of all of the five treatment conditions *Dictator Game (DG) Sender, Ultimatum Game (UG) Sender, UG Receiver, DG Reciprocity, and  DG Binary* regarding the parameters: temperature, age, and gender. 
+
+##### Structure
+* Preprocessing
+* Temperature
+* Age 
+* Gender
+
+The pre-registration can be found under this [link](https://aspredicted.org/see_one.php).
+
+### Preprocessing
+
+The following code will check the data for any missing values, XXX.
+The preprocessed data set will be saved as *data_clean.csv* which will be used in the subsequent analyses.
+
+```{r, echo=FALSE}
+# Load raw data
+data <- read.csv("synthetic_data_example.csv") #TODO: replace with correct data file
+# summary(data)
+# str(data) 
+
+# convert to factors
+data$temperature <- factor(data$temperature)
+data$age <- factor(data$age)
+data$gender <- factor(data$gender)
+data$prompt_type <- factor(data$prompt_type)
+data$game_type <- factor(data$game_type)
+
+# exclude prompt variable
+data <- subset(data, select = -c(prompt))
+
+```
+
+Check for missing data:
+```{r, echo=FALSE}
+missing_check <- sapply(data, function(x) any(is.na(x)))
+print(missing_check)
+
+data <- data[complete.cases(data), ] # data set without rows containing NA values
+
+# report of how many trials were eliminated
+eliminated_rows <- nrow(data) - sum(complete.cases(data))
+total_rows <- nrow(data)
+elimination_percentage <- (eliminated_rows / total_rows) * 100
+```
+
+Total N of raw data: `r total_rows`  
+Of which eliminated due to missing data: `r eliminated_rows`  
+Elimination percentage: `r elimination_percentage`  
+  
+**Eliminated N by game type:**
+
+```{r, echo=FALSE}
+# per game_type
+eliminated_counts <- table(data$game_type[!complete.cases(data)])
+print(eliminated_counts)
+
+```
+
+**Total trials per game type:**
+```{r, echo=FALSE}
+# total N for each game 
+total_counts <- table(data$game_type[complete.cases(data)])
+print(total_counts)
+
+```
+
+TODO: OTHER EXCLUSION CRITERIA???
+
+```{r, echo=FALSE}
+# Save the data frame to a new CSV file
+write.csv(data, file = "data_clean.csv", row.names = FALSE)
+```
+
+### Temperature
+
+#### DG Sender, UG Sender, and DG Reciprocity
+Creates plots depicting the relation between temperature and the dependent variable (money sent). All plots will be saved as pdf.
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+# rename factor levels for nicer tables 
+#TODO: add DG binary, but not in test data
+data$game_type <- factor(data$game_type, levels = c("dictator_sender", "dictator_sequential", "ultimatum_sender", "ultimatum_receiver"), labels = c("DG Sender", "DG Reciprocity", "UG Sender", "UG Receiver")) # rename levels for table
+
+# Plot relation Temp -> Value over all trials of DG Sender, UG Sender, and DG Reciprocity
+# Filter data for game types with ordinal DV
+ordinal_data <- subset(data, game_type %in% c("DG Sender", "UG Sender", "DG Reciprocity"))
+
+Fig1 <- ggplot(ordinal_data, aes(x = temperature, y = value, color = game_type)) +
+  geom_point() +
+  labs(x = "Model Temperature", y = "Money Sent", color = "Game Type") +
+  my_theme() +
+  scale_y_continuous(limits = c(0, 10)) +
+  ggtitle("Figure 1") +
+  labs(subtitle = "Effect of Temperature on Money Sent over all Trials of DG Sender, UG Sender, and DG Reciprocity")
+print(Fig1)
+
+Fig1 <- ggplot(ordinal_data, aes(x = temperature, y = value)) +
+  geom_violin(trim = FALSE, alpha = 0.5, width = 0.35) +
+  geom_boxplot(width = 0.175, outlier.shape = NA, fill = "white", color = "black") +
+  geom_point(position = position_jitter(width = 0.1), size = 2, alpha = 0.5, color = "lightblue") +
+  stat_summary(fun = mean, geom = "point", size = 5, color = "darkred", shape = 16) +
+  labs(x = "Model Temperature", y = "Money Sent", color = "Game Type") +
+  my_theme() +
+  scale_y_continuous(limits = c(0, 10)) +
+  ggtitle("Figure 1") +
+  labs(subtitle = "ALTERNATIVE PLOT: Effect of Temperature on Money Sent over all Trials of DG Sender, UG Sender, and DG Reciprocity")
+
+print(Fig1)
+
+# save as pdf
+pdf("descriptives_figure1.pdf", width = 6, height = 4)
+print(Fig1)
+dev.off()
+
+# Create separate plots for each game type
+Fig2 <- ggplot(ordinal_data, aes(x = temperature, y = value, color = game_type)) +
+  geom_point(aes()) +
+  facet_wrap(~ game_type, ncol = 1) +
+  my_theme() +
+  labs(x = "Model Temperature", y = "Money Sent") +
+  scale_y_continuous(limits = c(0, 10)) +
+  ggtitle("Figure 2") +
+  labs(subtitle = "Effect of Temperature on Money Sent by Game Type")
+
+# Print and save the plots
+print(Fig2)
+ggsave("descriptives_figure2.pdf", Fig2, width = 6, height = 4)
+
+```
+
+#### UG Receiver and DG Binary
+Creates plots depicting the relation between temperature and the dependent variable (UG Receiver: accept or reject; UG Binary: option 1 or option 2). All plots will be saved as pdf.
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# Plot relation Temp -> Value over all trials of UG Receiver and DG Binary
+categ_data <- subset(data, game_type %in% c("UG Receiver", "DG Binary")) # Filter data for game types with categorical DV
+
+# Create plot with filtered data
+Fig3 <- ggplot(categ_data, aes(x = temperature, y = value)) +
+  geom_point(size = 3) +
+  labs(x = "Temperature", y = "XXX", color = "Value") +
+  facet_wrap(~ game_type, ncol = 1, scales = "free_y") +
+  my_theme() +
+  ggtitle("Figure 2") +
+  labs(subtitle = "Effect of Temperature on DV for UG Receiver and DG Binary")
+
+# Print and save the plot
+print(Fig3)
+ggsave("descriptives_figure3.pdf", Fig3, width = 6, height = 4)
+
+```
+
+
+### Age
+
+Creates plots only of the experimental prompts. All plots will be saved as pdf.
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# Plot relation Age -> Value over all trials of UG Receiver and DG Binary
+Fig4 <- ggplot(ordinal_data, aes(x = age, y = value, color = game_type)) +
+  geom_point() +
+  labs(x = "Age", y = "Money Sent", color = "Game Type") +
+  scale_x_discrete(labels = c("18-30", "31-50", "51-70")) +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 4") +
+  labs(subtitle = "Effect of Age on Money Sent over all Trials of DG Sender, UG Sender, and DG Reciprocity")
+
+# Print and save the plot
+print(Fig4)
+ggsave("descriptives_figure4.pdf", Fig4, width = 6, height = 4)
+
+
+# Create separate plots for each game type
+Fig5 <- ggplot(ordinal_data, aes(x = age, y = value, color = game_type)) +
+  geom_point(aes()) +
+  facet_wrap(~ game_type, ncol = 1) +
+  labs(x = "Age", y = "Money Sent") +
+  scale_x_discrete(labels = c("18-30", "31-50", "51-70")) +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 5") +
+  labs(subtitle = "Effect of Age on Money Sent by Game Type")
+
+# Print and save the plots
+print(Fig5)
+ggsave("descriptives_figure5.pdf", Fig2, width = 6, height = 4)
+
+
+```
+
+### Gender
+
+Creates plots only of the experimental prompts. All plots will be saved as pdf.
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# Plot relation Gender -> Value over all trials of UG Receiver and DG Binary
+Fig6 <- ggplot(ordinal_data, aes(x = gender, y = value, color = game_type)) +
+  geom_point() +
+  labs(x = "Gender", y = "Money Sent", color = "Game Type") +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 6") +
+  labs(subtitle = "Effect of Gender on Money Sent over all Trials of DG Sender, UG Sender, and DG Reciprocity")
+
+# Print and save the plot
+print(Fig6)
+ggsave("descriptives_figure6.pdf", Fig4, width = 6, height = 4)
+
+
+# Create separate plots for each game type
+Fig7 <- ggplot(ordinal_data, aes(x = gender, y = value, color = game_type)) +
+  geom_point(aes()) +
+  facet_wrap(~ game_type, ncol = 1) +
+  labs(x = "Gender", y = "Money Sent") +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 7") +
+  labs(subtitle = "Effect of Gender on Money Sent by Game Type")
+
+# Print and save the plots
+print(Fig7)
+ggsave("descriptives_figure7.pdf", Fig2, width = 6, height = 4)
+
+
+```
+
+For pre registered analyses please refer to files:
+
+* analysis1.Rmd
+* analysis2.Rmd
+* analysis3.Rmd

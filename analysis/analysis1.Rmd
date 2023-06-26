@@ -1,0 +1,221 @@
+---
+title: "Social Preferences of ChatGPT - Analysis 1"
+output: html_document
+date: "2023-06-15" 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load required libraries
+library(apaTables)
+library(dplyr)
+library(flextable)
+library(ggplot2)
+library(ggpubr)
+library(kableExtra)
+library(knitr)
+library(rempsyc)
+library(tidyverse)
+
+# Define theme for plots
+my_theme <- function() {
+  theme(legend.position = "none",
+        plot.title = element_text(size = 12, face = "bold", margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 11, face = "italic", margin = margin(b = 15)),
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(color = "black"),
+        plot.margin = margin(20, 5, 5, 5, "pt"),
+        plot.title.position = "plot")
+}
+
+# Set Working Directory to Source File Directory
+getwd()
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+#### PREPROCESSING ####
+# Load data
+data <- read.csv("data_clean.csv")
+
+# convert to factors
+data$temperature <- factor(data$temperature)
+data$age <- factor(data$age)
+data$gender <- factor(data$gender)
+data$prompt_type <- factor(data$prompt_type)
+data$game_type <- factor(data$game_type)
+
+# subset with only DG_sender and DG_reciprocity data
+data_A1 <- subset(data, game_type %in% c("dictator_sender", "dictator_sequential"))
+data_A1$game_type <- droplevels(data_A1$game_type) # drop empty factor levels in subset_data
+data_A1$game_type <- factor(data_A1$game_type, levels = c("dictator_sender", "dictator_sequential"), labels = c("DG Sender", "DG Reciprocity")) # rename levels for table
+
+# create dummy variable(s)
+# data_A1$game_type_num <- ifelse(data_A1$game_type == "DG Sender", 1, 0)
+# unocmment and add more if necessary 
+
+```
+
+This document includes the pre registered analysis as well as subsequent exploratory analysis regarding question 1:  
+*Are ChatGPT altruistic suggestions absolute or are they sensitive to the strategic risk of rejections?*
+
+##### Structure
+* Descriptives
+* Pre-registered analysis
+* Exploratory analysis
+
+The pre-registration can be found under this [link](https://aspredicted.org/see_one.php).
+
+The following code uses the preprocessed data from XXX (see XXX; [link](XXX)).
+
+### Descriptives
+
+Descriptive summary of the number of trials and of the dependent variable (money sent).
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# Calculate the counts per game type and prompt type
+total_counts <- data_A1 %>%
+  group_by(game_type, prompt_type) %>%
+  summarise(Counts = n(), .groups = "keep") %>%
+  pivot_wider(names_from = prompt_type, values_from = Counts, values_fill = 0) %>%
+  mutate(`Counts Total` = `baseline` + `experimental`) %>%
+  rename(`Game type` = game_type, `Counts Baseline` = `baseline`, `Counts Experimental` = `experimental`)
+
+names(total_counts) <- c("Game type", "N Unprompted Demographics", "N Experimental", "N Total")
+
+nice_table(total_counts,
+          title = c("Table 1", "Trials per Game Type"),
+          note = c(
+             "DG = Dictator Game; Unprompted Demographics: demographics were not manipulated, Experimental: demographics of the person receiving the suggestion were manipulated")
+          )
+          
+# Calculate standard descriptives of the DV
+descriptive_stats <- data_A1 %>%
+  group_by(game_type) %>%
+  summarize(
+    Mean = mean(value),
+    Median = median(value),
+    SD = sd(value),
+    Min = min(value),
+    Max = max(value)
+  )
+# print(descriptive_stats)
+
+names(descriptive_stats) <- c("Game type", "Mean", "Median", "SD", "Min", "Max")
+
+n_dg_sender <- total_counts$`N Total`[total_counts$`Game type` == "DG Sender"]
+n_dg_recip <- total_counts$`N Total`[total_counts$`Game type` == "DG Reciprocity"]
+note <- paste("DG = Dictator Game; N (DG Sender) =",n_dg_sender, "; N (DG Reciprocity) =", n_dg_recip)
+
+nice_table(descriptive_stats, 
+           title = c("Table 2", "Descriptives of Dependent Variable (Money sent by model)"),
+           note = note
+           )
+
+# plot the DV
+# standard error
+mean_se <- data_A1 %>%
+  group_by(game_type) %>%
+  summarize(
+    Mean = mean(value),
+    SE = sd(value) / sqrt(n())
+  )
+
+# Plot
+Fig1 <- ggplot(mean_se, aes(x = game_type, y = Mean)) +
+  geom_col(fill = "steelblue", width = 0.4) +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.15, color = "black") +
+  labs(x = "Game Type", y = "Mean Money Sent") +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 1") +
+  labs(subtitle = "Mean Money Sent by Model")
+print(Fig1)
+
+# Alternative plot
+Fig1 <-ggboxplot(data_A1, x = "game_type", y = "value", 
+          color = "game_type", palette = c("#00AFBB", "#E7B800"), width = 0.5,
+          ylab = "Money Sent", xlab = "Game Type") +
+        labs(title = "Figure 1", subtitle = "ALTERNATIVE PLOT Mean Money Sent by Model") +
+        my_theme()
+print(Fig1)
+
+# save as pdf
+pdf("analysis1_figure1.pdf", width = 6, height = 4)
+print(Fig1)
+dev.off()
+```
+
+
+
+
+### Pre-registered analysis
+
+As stated in our pre-registration: 
+To answer question 1, we use a t-test to compare the suggestions sent in Dictator Game (DG) Baseline and in DG Reciprocity. If suggestions are sensitive to reciprocity, we expect to find suggestions of higher value in DG Reciprocity compared to the DG Baseline.
+
+##### Test assumptions:
+```{r , fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# test assumptions
+res.ftest <- var.test(value ~ game_type, data = data_A1)
+res.ftest
+
+# T-test to compare suggestions in DG Sender and DG Reciprocity
+group1 <- subset(data_A1, game_type == "DG Sender")$value
+group2 <- subset(data_A1, game_type == "DG Reciprocity")$value
+result <- t.test(group1, group2, var.equal = TRUE)
+
+# save values to print t-test result
+DG_Sender_Mean <- round(mean(group1), 2)
+DG_Reciprocity_Mean <- round(mean(group2), 2)
+df <- round(result$parameter, 0)
+t <- sprintf("%.3f", result$statistic)
+p <- sprintf("%.3f", result$p.value)
+
+# Determine whether there was a significant difference
+if (result$p.value < 0.05) {
+  significance <- "a significant difference"
+} else {
+  significance <- "no significant difference"
+}
+
+```
+
+##### Results:  
+
+There was `r significance` between DG Sender (*M* = `r DG_Sender_Mean`) and DG Reciprocity (*M* = `r DG_Reciprocity_Mean`), *t*(`r df`) = `r t`, *p* = `r p`. See also Figure 2.
+
+
+DG Sender Mean: `r DG_Sender_Mean`  
+DG Reciprocity Mean: `r DG_Reciprocity_Mean`  
+*t*(`r df`) = `r t`, *p* = `r p`
+
+
+```{r , echo=FALSE}
+# plot
+# Visualize: Specify the comparisons you want
+my_comparisons <- list(c("DG Sender", "DG Reciprocity"))
+Fig2 <- ggboxplot(data_A1, x = "game_type", y = "value", color = "game_type", width = 0.5, palette = "jco",
+        ylab = "Money Sent", xlab = "Game Type") +
+  stat_compare_means(comparisons = my_comparisons, label.y = 10, method = "t.test")  +
+  labs(title = "Figure 2", subtitle = "Pairwise Comparison of Money Sent DG Sender vs. DG Reciprocity") +
+  my_theme()
+print(Fig2)
+
+# save as pdf
+pdf("analysis1_figure2.pdf", width = 6, height = 4)
+print(Fig2)
+dev.off()
+```
+
+### Exploratory analysis
+
+```{r , echo=FALSE}
+
+# TODO
+
+
+```
+

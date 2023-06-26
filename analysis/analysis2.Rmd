@@ -1,0 +1,251 @@
+---
+title: "Social Preferences of ChatGPT - Analysis 2"
+output: html_document
+date: "2023-06-19" 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load required libraries
+library(apaTables)
+library(dplyr)
+library(flextable)
+library(ggplot2)
+library(ggpubr)
+library(kableExtra)
+library(knitr)
+library(pander)
+library(papaja)
+library(rempsyc)
+library(tidyverse)
+
+# Define theme for plots
+my_theme <- function() {
+  theme(legend.position = "none",
+        plot.title = element_text(size = 12, face = "bold", margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 11, face = "italic", margin = margin(b = 15)),
+        plot.background = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"),
+        axis.line = element_line(color = "black"),
+        plot.margin = margin(20, 5, 5, 5, "pt"),
+        plot.title.position = "plot")
+}
+
+# Set Working Directory to Source File Directory
+getwd()
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+#### PREPROCESSING ####
+# Load data
+data <- read.csv("data_clean.csv")
+
+# convert to factors
+data$temperature <- factor(data$temperature)
+data$age <- factor(data$age)
+data$gender <- factor(data$gender)
+data$prompt_type <- factor(data$prompt_type)
+data$game_type <- factor(data$game_type)
+
+# subset with only DG_sender and DG_reciprocity data
+data_A2 <- subset(data, game_type %in% c("dictator_sender", "ultimatum_sender"))
+data_A2$game_type <- droplevels(data_A2$game_type) # drop empty factor levels in subset_data
+data_A2$game_type <- factor(data_A2$game_type, levels = c("dictator_sender", "ultimatum_sender"), labels = c("DG Sender", "UG Sender")) # rename levels for table
+
+# create dummy variable(s)
+# data_A2$game_type_num <- ifelse(data_A2$game_type == "DG Sender", 1, 0)
+# unocmment and add more if necessary 
+
+```
+
+This document includes the pre registered analysis as well as subsequent exploratory analysis regarding question 2:  
+*Are ChatGPT altruistic suggestions absolute or are sensitive to the previous kindness of the counterpart, reflecting reciprocity?*
+
+##### Structure
+* Descriptives
+* Pre-registered analysis
+* Exploratory analysis
+
+The pre-registration can be found under this [link](https://aspredicted.org/see_one.php).
+
+The following code uses the preprocessed data from XXX (see XXX; [link](XXX)).
+
+### Descriptives
+
+Descriptive summary of the number of trials and of the dependent variable (money sent).
+
+```{r, fig.asp = 0.8, fig.width = 6, echo=FALSE}
+
+# Calculate the counts per game type and prompt type
+total_counts <- data_A2 %>%
+  group_by(game_type, prompt_type) %>%
+  summarise(Counts = n(), .groups = "keep") %>%
+  pivot_wider(names_from = prompt_type, values_from = Counts, values_fill = 0) %>%
+  mutate(`Counts Total` = `baseline` + `experimental`) %>%
+  rename(`Game type` = game_type, `Counts Baseline` = `baseline`, `Counts Experimental` = `experimental`)
+
+names(total_counts) <- c("Game type", "N Unprompted Demographics", "N Experimental", "N Total")
+
+nice_table(total_counts,
+          title = c("Table 1", "Trials per Game Type"),
+          note = c(
+             "DG = Dictator Game; UG = Ultimatum Game; Unprompted Demographics: demographics were not manipulated, Experimental: demographics of the person receiving the suggestion were manipulated")
+          )
+
+
+# Calculate standard descriptives of the DV
+descriptive_stats <- data_A2 %>%
+  group_by(game_type) %>%
+  summarize(
+    Mean = mean(value),
+    Median = median(value),
+    SD = sd(value),
+    Min = min(value),
+    Max = max(value)
+  )
+# print(descriptive_stats)
+
+names(descriptive_stats) <- c("Game type", "Mean", "Median", "SD", "Min", "Max")
+
+n_dg_sender <- total_counts$`N Total`[total_counts$`Game type` == "DG Sender"]
+n_dg_recip <- total_counts$`N Total`[total_counts$`Game type` == "UG Sender"]
+note <- paste("DG = Dictator Game; UG = Ultimatum Game; N (DG Sender) =",n_dg_sender, "; N (UG Sender) =", n_dg_recip)
+
+nice_table(descriptive_stats, 
+           title = c("Table 2", "Descriptives of Dependent Variable (Money sent by model)"),
+           note = note
+           )
+
+# plot the DV
+# standard error
+mean_se <- data_A2 %>%
+  group_by(game_type) %>%
+  summarize(
+    Mean = mean(value),
+    SE = sd(value) / sqrt(n())
+  )
+
+# Plot
+Fig1 <- ggplot(mean_se, aes(x = game_type, y = Mean)) +
+  geom_col(fill = "steelblue", width = 0.4) +
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.15, color = "black") +
+  labs(x = "Game Type", y = "Mean Money Sent") +
+  scale_y_continuous(limits = c(0, 10)) +
+  my_theme() +
+  ggtitle("Figure 1") +
+  labs(subtitle = "Mean Money Sent by Model")
+print(Fig1)
+
+# Alternative plot
+Fig1 <- ggboxplot(data_A2, x = "game_type", y = "value", 
+          color = "game_type", palette = c("#00AFBB", "#E7B800"), width = 0.5,
+          ylab = "Money Sent", xlab = "Game Type") +
+          labs(title = "Figure 1", subtitle = "ALTERNATIVE PLOT Mean Money Sent by Model") +
+          my_theme() 
+print(Fig1)
+
+# save as pdf
+pdf("analysis2_figure1.pdf", width = 6, height = 4)
+print(Fig1)
+dev.off()
+
+```
+
+
+
+
+### Pre-registered analysis
+
+As stated in our pre-registration: 
+To answer question 2, we use a t-test to compare the suggestions sent in DG Sender and in UG Sender. If suggestions are sensitive to strategic risk, we expect to find higher suggestions in UG Sender compared to DG Sender.
+
+##### Test assumptions:
+```{r , echo=FALSE}
+
+# test assumptions
+res.ftest <- var.test(value ~ game_type, data = data_A2)
+res.ftest
+
+# T-test to compare suggestions in DG Sender and DG Reciprocity
+group1 <- subset(data_A2, game_type == "DG Sender")$value
+group2 <- subset(data_A2, game_type == "UG Sender")$value
+result <- t.test(group1, group2, var.equal = TRUE)
+
+# save values to print t-test result
+DG_Sender_Mean <- round(mean(group1), 2)
+UG_Sender_Mean <- round(mean(group2), 2)
+df <- round(result$parameter, 0)
+t <- sprintf("%.3f", result$statistic)
+p <- sprintf("%.3f", result$p.value)
+
+# Determine whether there was a significant difference
+if (result$p.value < 0.05) {
+  significance <- "a significant difference"
+} else {
+  significance <- "no significant difference"
+}
+
+```
+
+##### Results:  
+
+There was `r significance` between DG Sender (*M* = `r DG_Sender_Mean`) and UG Sender (*M* = `r UG_Sender_Mean`), *t*(`r df`) = `r t`, *p* = `r p`. See also Figure 2.
+
+
+DG Sender Mean: `r DG_Sender_Mean`  
+UG Sender Mean: `r UG_Sender_Mean`  
+*t*(`r df`) = `r t`, *p* = `r p`
+
+
+```{r, echo=FALSE}
+
+# plot
+my_comparisons <- list(c("DG Sender", "DG Reciprocity"))
+Fig2 <- ggboxplot(data_A2, x = "game_type", y = "value", color = "game_type", width = 0.5, palette = "jco",
+        ylab = "Money Sent", xlab = "Game Type") +
+  stat_compare_means(comparisons = my_comparisons, label.y = 10, method = "t.test")  +
+  labs(title = "Figure 2", subtitle = "Pairwise Comparison of Money Sent DG Sender vs. DG Reciprocity") +
+  my_theme()
+print(Fig2)
+
+# save as pdf
+pdf("analysis2_figure2.pdf", width = 6, height = 4)
+print(Fig2)
+dev.off()
+
+```
+
+### Exploratory analysis
+
+##### Temperature
+ANOVA with both prompt types (unprompted demographics and experimental) to see how model temperature is involved
+```{r, echo=FALSE}
+
+# Perform the two-way ANOVA
+model <- aov(value ~ game_type * temperature, data = data_A2)
+
+# Display the ANOVA table
+pander::pander(summary(model), style = "rmarkdown")
+
+# Perform Tukey's HSD post-hoc test
+# tukey_result <- TukeyHSD(model)
+# pander::pander(tukey_result, style = "rmarkdown")
+```
+
+##### Age & Gender
+Experimental prompts only to look at age and gender
+```{r, echo=FALSE}
+# filter for experimental prompts
+exp_data <- subset(data_A2, prompt_type %in% "experimental") # Filter data for game types with
+
+# Fit a linear regression model with additional variables
+model <- aov(value ~ game_type * gender * age, data = exp_data)
+
+# Display the model summary in APA format with title and subtitle
+pander::pander(summary(model), style = "rmarkdown")
+
+# Post Hoc
+# posthoc <- TukeyHSD(model)
+# pander::pander(posthoc, style = "rmarkdown")
+
+```
